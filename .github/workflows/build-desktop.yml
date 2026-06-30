@@ -13,6 +13,8 @@ env:
   NEXT_PUBLIC_SUPABASE_ANON_KEY: local
   SUPABASE_SERVICE_ROLE_KEY: local
   LOCAL_AUTH_SECRET: ci-build-secret-placeholder
+  # Prevent electron from downloading during npm install (electron-builder handles it)
+  ELECTRON_SKIP_BINARY_DOWNLOAD: 1
 
 jobs:
   build-mac:
@@ -23,12 +25,15 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '20'
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps --no-fund --engine-strict=false
-        env:
-          npm_config_optional: true
+        run: npm install --ignore-scripts --legacy-peer-deps --no-fund
+
+      - name: Run post-install scripts for required packages
+        run: |
+          node node_modules/@libsql/client/scripts/install.js 2>/dev/null || true
+          npx --yes node-pre-gyp install --fallback-to-build 2>/dev/null || true
 
       - name: Build Next.js
         run: npm run build
@@ -57,12 +62,10 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '20'
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps --no-fund --engine-strict=false
-        env:
-          npm_config_optional: true
+        run: npm install --ignore-scripts --legacy-peer-deps --no-fund
 
       - name: Build Next.js
         run: npm run build
@@ -92,7 +95,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '20'
 
       - name: Install Linux system dependencies
         run: |
@@ -102,9 +105,7 @@ jobs:
             libxtst6 xauth xvfb libgbm-dev libsecret-1-dev rpm
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps --no-fund --engine-strict=false
-        env:
-          npm_config_optional: true
+        run: npm install --ignore-scripts --legacy-peer-deps --no-fund
 
       - name: Build Next.js
         run: npm run build
