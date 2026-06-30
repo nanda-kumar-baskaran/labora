@@ -151,5 +151,10 @@
       "deleteAppDataOnUninstall": false
     },
     "publish": null
+  },
+  "description": "LabMS \u2014 Laboratory Management System",
+  "author": {
+    "name": "LabMS",
+    "email": "labms@labms.app"
   }
 }
