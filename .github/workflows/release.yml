@@ -39,7 +39,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Install Linux system dependencies
         if: matrix.os == 'ubuntu-latest'
@@ -50,7 +50,7 @@ jobs:
             libxtst6 xauth xvfb libgbm-dev libsecret-1-dev rpm
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps --no-fund
+        run: npm install --legacy-peer-deps --no-fund --engine-strict=false
         env:
           npm_config_optional: true
 
