@@ -6,7 +6,49 @@ on:
       - 'v*'
   workflow_dispatch:
 
+env:
+  STORAGE_MODE: local
+  NEXT_PUBLIC_APP_URL: http://localhost:3456
+  NEXT_PUBLIC_SUPABASE_URL: http://localhost
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: local
+  SUPABASE_SERVICE_ROLE_KEY: local
+  LOCAL_AUTH_SECRET: ci-build-secret-placeholder
+
 jobs:
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --no-fund
+        env:
+          npm_config_optional: true
+
+      - name: Build Next.js
+        run: npm run build
+
+      - name: Copy static assets into standalone
+        run: |
+          cp -r .next/static .next/standalone/.next/static || true
+          cp -r public .next/standalone/public || true
+
+      - name: Build macOS installer (.dmg)
+        run: npx --yes electron-builder build --mac --publish never
+
+      - name: Upload macOS installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: LabMS-macOS
+          path: dist-electron/*.dmg
+          if-no-files-found: error
+          retention-days: 30
+
   build-windows:
     runs-on: windows-latest
     steps:
@@ -15,23 +57,15 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '20'
 
       - name: Install dependencies
-        run: npm install --no-audit --prefer-offline
-
-      - name: Rebuild native modules
-        run: npm rebuild
+        run: npm install --legacy-peer-deps --no-fund
+        env:
+          npm_config_optional: true
 
       - name: Build Next.js
         run: npm run build
-        env:
-          STORAGE_MODE: local
-          NEXT_PUBLIC_APP_URL: http://localhost:3456
-          NEXT_PUBLIC_SUPABASE_URL: http://localhost
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: local
-          SUPABASE_SERVICE_ROLE_KEY: local
-          LOCAL_AUTH_SECRET: ci-build-secret-placeholder
 
       - name: Copy static assets into standalone
         shell: bash
@@ -41,58 +75,12 @@ jobs:
 
       - name: Build Windows installer (.exe)
         run: npx --yes electron-builder build --win --publish never
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
           name: LabMS-Windows
           path: dist-electron/*.exe
-          if-no-files-found: error
-          retention-days: 30
-
-  build-mac:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Install dependencies
-        run: npm install --no-audit --prefer-offline
-
-      - name: Rebuild native modules
-        run: npm rebuild
-
-      - name: Build Next.js
-        run: npm run build
-        env:
-          STORAGE_MODE: local
-          NEXT_PUBLIC_APP_URL: http://localhost:3456
-          NEXT_PUBLIC_SUPABASE_URL: http://localhost
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: local
-          SUPABASE_SERVICE_ROLE_KEY: local
-          LOCAL_AUTH_SECRET: ci-build-secret-placeholder
-
-      - name: Copy static assets into standalone
-        run: |
-          cp -r .next/static .next/standalone/.next/static || true
-          cp -r public .next/standalone/public || true
-
-      - name: Build macOS installer (.dmg)
-        run: npx --yes electron-builder build --mac --publish never
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload macOS installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: LabMS-macOS
-          path: dist-electron/*.dmg
           if-no-files-found: error
           retention-days: 30
 
@@ -104,7 +92,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '20'
 
       - name: Install Linux system dependencies
         run: |
@@ -114,20 +102,12 @@ jobs:
             libxtst6 xauth xvfb libgbm-dev libsecret-1-dev rpm
 
       - name: Install dependencies
-        run: npm install --no-audit --prefer-offline
-
-      - name: Rebuild native modules
-        run: npm rebuild
+        run: npm install --legacy-peer-deps --no-fund
+        env:
+          npm_config_optional: true
 
       - name: Build Next.js
         run: npm run build
-        env:
-          STORAGE_MODE: local
-          NEXT_PUBLIC_APP_URL: http://localhost:3456
-          NEXT_PUBLIC_SUPABASE_URL: http://localhost
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: local
-          SUPABASE_SERVICE_ROLE_KEY: local
-          LOCAL_AUTH_SECRET: ci-build-secret-placeholder
 
       - name: Copy static assets into standalone
         run: |
@@ -136,8 +116,6 @@ jobs:
 
       - name: Build Linux installer (.AppImage)
         run: npx --yes electron-builder build --linux --publish never
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Linux installer
         uses: actions/upload-artifact@v4
