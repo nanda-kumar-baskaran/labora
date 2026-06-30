@@ -13,8 +13,10 @@ env:
   NEXT_PUBLIC_SUPABASE_ANON_KEY: local
   SUPABASE_SERVICE_ROLE_KEY: local
   LOCAL_AUTH_SECRET: ci-build-secret-placeholder
-  # Skip electron binary download during npm install — electron-builder downloads it
+  # Prevent electron binary download during npm install (electron-builder handles it)
   ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+  # Prevent sharp from downloading heavy binaries (not needed for build)
+  SHARP_IGNORE_GLOBAL_LIBVIPS: "1"
 
 jobs:
   build-mac:
@@ -28,12 +30,8 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps --no-fund --omit=optional
-        timeout-minutes: 10
-
-      - name: Install optional native deps
-        run: npm install --legacy-peer-deps --no-fund --only=optional || true
-        timeout-minutes: 5
+        run: npm install --legacy-peer-deps --no-fund
+        timeout-minutes: 15
 
       - name: Build Next.js
         run: npm run build
@@ -65,12 +63,8 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps --no-fund --omit=optional
-        timeout-minutes: 10
-
-      - name: Install optional native deps
-        run: npm install --legacy-peer-deps --no-fund --only=optional || true
-        timeout-minutes: 5
+        run: npm install --legacy-peer-deps --no-fund
+        timeout-minutes: 15
 
       - name: Build Next.js
         run: npm run build
@@ -110,12 +104,8 @@ jobs:
             libxtst6 xauth xvfb libgbm-dev libsecret-1-dev rpm
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps --no-fund --omit=optional
-        timeout-minutes: 10
-
-      - name: Install optional native deps
-        run: npm install --legacy-peer-deps --no-fund --only=optional || true
-        timeout-minutes: 5
+        run: npm install --legacy-peer-deps --no-fund
+        timeout-minutes: 15
 
       - name: Build Next.js
         run: npm run build
