@@ -32,7 +32,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: "npm"
 
       - name: Install Linux system dependencies
         if: matrix.os == 'ubuntu-latest'
@@ -43,7 +42,7 @@ jobs:
             libxtst6 xauth xvfb libgbm-dev libsecret-1-dev rpm
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install --no-audit --prefer-offline
 
       - name: Rebuild native modules
         run: npm rebuild
