@@ -13,8 +13,8 @@ env:
   NEXT_PUBLIC_SUPABASE_ANON_KEY: local
   SUPABASE_SERVICE_ROLE_KEY: local
   LOCAL_AUTH_SECRET: ci-build-secret-placeholder
-  # Prevent electron from downloading during npm install (electron-builder handles it)
-  ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+  # Skip electron binary download during npm install — electron-builder downloads it
+  ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
 
 jobs:
   build-mac:
@@ -28,12 +28,12 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: npm install --ignore-scripts --legacy-peer-deps --no-fund
+        run: npm install --legacy-peer-deps --no-fund --omit=optional
+        timeout-minutes: 10
 
-      - name: Run post-install scripts for required packages
-        run: |
-          node node_modules/@libsql/client/scripts/install.js 2>/dev/null || true
-          npx --yes node-pre-gyp install --fallback-to-build 2>/dev/null || true
+      - name: Install optional native deps
+        run: npm install --legacy-peer-deps --no-fund --only=optional || true
+        timeout-minutes: 5
 
       - name: Build Next.js
         run: npm run build
@@ -65,7 +65,12 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: npm install --ignore-scripts --legacy-peer-deps --no-fund
+        run: npm install --legacy-peer-deps --no-fund --omit=optional
+        timeout-minutes: 10
+
+      - name: Install optional native deps
+        run: npm install --legacy-peer-deps --no-fund --only=optional || true
+        timeout-minutes: 5
 
       - name: Build Next.js
         run: npm run build
@@ -105,7 +110,12 @@ jobs:
             libxtst6 xauth xvfb libgbm-dev libsecret-1-dev rpm
 
       - name: Install dependencies
-        run: npm install --ignore-scripts --legacy-peer-deps --no-fund
+        run: npm install --legacy-peer-deps --no-fund --omit=optional
+        timeout-minutes: 10
+
+      - name: Install optional native deps
+        run: npm install --legacy-peer-deps --no-fund --only=optional || true
+        timeout-minutes: 5
 
       - name: Build Next.js
         run: npm run build
