@@ -1,6 +1,6 @@
 {
   "name": "labms",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -70,23 +70,16 @@
       "buildResources": "electron"
     },
     "files": [
-      "!node_modules/**/*",
-      "node_modules/@libsql/**/*",
-      "node_modules/bcryptjs/**/*",
-      "node_modules/@react-pdf/**/*",
-      "node_modules/react/**/*",
-      "node_modules/react-dom/**/*",
-      ".next/standalone/**/*",
-      ".next/static/**/*",
-      "public/**/*",
-      "electron/**/*"
+      "electron/**/*",
+      "!node_modules/**/*"
     ],
     "extraResources": [
       {
         "from": ".next/standalone",
         "to": "app/.next/standalone",
         "filter": [
-          "**/*"
+          "**/*",
+          "node_modules/**/*"
         ]
       },
       {

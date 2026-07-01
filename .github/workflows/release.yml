@@ -60,11 +60,16 @@ jobs:
       - name: Build Next.js standalone
         run: npm run build
 
-      - name: Copy static assets into standalone
+      - name: Copy static assets and node_modules into standalone
         shell: bash
         run: |
           cp -r .next/static .next/standalone/.next/static || true
           cp -r public        .next/standalone/public || true
+          # Next.js standalone traces most deps, but 'next' itself must be
+          # present for server.js to require('next'). Copy it explicitly.
+          mkdir -p .next/standalone/node_modules
+          cp -r node_modules/next .next/standalone/node_modules/next || true
+          cp -r node_modules/@next .next/standalone/node_modules/@next || true
 
       - name: Build Electron (${{ matrix.platform }})
         run: npx --yes electron-builder build --${{ matrix.platform }} --publish never
