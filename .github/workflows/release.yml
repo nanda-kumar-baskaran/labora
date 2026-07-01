@@ -65,11 +65,16 @@ jobs:
         run: |
           cp -r .next/static .next/standalone/.next/static || true
           cp -r public        .next/standalone/public || true
-          # Next.js standalone traces most deps, but 'next' itself must be
-          # present for server.js to require('next'). Copy it explicitly.
+          # Next.js standalone traces runtime deps into .next/standalone/node_modules
+          # but server.js also requires('next') which may not always be traced.
+          # Ensure next and @next are present — copy from root node_modules if missing.
           mkdir -p .next/standalone/node_modules
-          cp -r node_modules/next .next/standalone/node_modules/next || true
-          cp -r node_modules/@next .next/standalone/node_modules/@next || true
+          if [ ! -d ".next/standalone/node_modules/next" ]; then
+            cp -r node_modules/next .next/standalone/node_modules/next
+          fi
+          if [ ! -d ".next/standalone/node_modules/@next" ]; then
+            cp -r node_modules/@next .next/standalone/node_modules/@next || true
+          fi
 
       - name: Build Electron (${{ matrix.platform }})
         run: npx --yes electron-builder build --${{ matrix.platform }} --publish never
