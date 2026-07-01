@@ -3,27 +3,27 @@
  *
  * Architecture:
  *   Electron shell → license check → spawns Next.js standalone server
- *   → opens BrowserWindow pointing at http://127.0.0.1:3456
+ *   → waits for "✓ Ready" in server output → opens BrowserWindow
  *
  * Key design decisions:
- *   - License check (Ed25519) before Next.js starts — can't be bypassed
- *     by patching the web app layer
+ *   - Detect server readiness by watching stdout/stderr for "✓ Ready"
+ *     instead of HTTP polling. HTTP polling can fail on Windows when
+ *     Electron intercepts loopback connections; output watching is
+ *     100% reliable cross-platform.
  *   - Use 127.0.0.1 everywhere (not 'localhost') — on Windows/Node 17+,
  *     'localhost' resolves to ::1 (IPv6) first, causing ECONNREFUSED
- *   - Log to userData/labora-startup.log for client diagnostics
- *   - Health check hits / (not /login) to avoid false 500 retries
- *   - 60s timeout for slow client machines
+ *   - Log everything to userData/labora-startup.log for client diagnostics
+ *   - License check (Ed25519) before Next.js starts
  */
 
 const { app, BrowserWindow, ipcMain, shell, dialog } = require("electron");
 const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
-const http = require("http");
 const { checkStoredLicense, activateLicense, getMachineId } = require("./license");
 
 const PORT = 3456;
-const HOST = "127.0.0.1"; // Always IPv4 — avoids localhost → ::1 on Windows/Node 17+
+const HOST = "127.0.0.1";
 const DEV_MODE = !app.isPackaged;
 
 let mainWindow = null;
@@ -75,7 +75,7 @@ function showActivationWindow() {
     title: "Labora — Activation",
     icon: path.join(__dirname, "icon.png"),
     webPreferences: {
-      nodeIntegration: true,   // needed for ipcRenderer in plain HTML
+      nodeIntegration: true,
       contextIsolation: false,
     },
     backgroundColor: "#070d1a",
@@ -86,12 +86,10 @@ function showActivationWindow() {
 
   activationWindow.on("closed", () => {
     activationWindow = null;
-    // If main window never opened, quit
     if (!mainWindow) app.quit();
   });
 }
 
-// IPC handlers for activation window
 ipcMain.handle("get-machine-id", () => getMachineId());
 
 ipcMain.handle("activate-license", (_, licenseStr) => {
@@ -105,65 +103,17 @@ ipcMain.handle("restart-app", () => {
   app.quit();
 });
 
-// ── Wait for Next.js server to be ready ──────────────────────────────
+// ── Start Next.js server + wait for ready ────────────────────────────
 // Returns a Promise that:
-//   - resolves when the server responds on /
-//   - rejects immediately if the server process exits with non-zero code
-//   - rejects after `timeout` ms if the server never responds
-function waitForServer(timeout = 60000) {
-  const url = `http://${HOST}:${PORT}/`;
-  return new Promise((resolve, reject) => {
-    let done = false;
-    const start = Date.now();
-
-    // Fail fast: if the server crashes, don't wait the full timeout
-    const onEarlyExit = (code, signal) => {
-      if (done) return;
-      done = true;
-      reject(new Error(
-        `Next.js server exited early (code ${code}, signal ${signal}).\n` +
-        `Check log for details.`
-      ));
-    };
-    nextServer?.once("exit", onEarlyExit);
-
-    function check() {
-      if (done) return;
-      const req = http.get(url, (res) => {
-        if (done) { res.resume(); return; }
-        res.resume();
-        done = true;
-        nextServer?.removeListener("exit", onEarlyExit);
-        resolve();
-      });
-      req.on("error", () => {
-        // Server not ready yet — schedule next attempt
-        if (!done) scheduleRetry();
-      });
-      // Short per-request timeout so we don't accumulate hanging sockets
-      req.setTimeout(2000, () => {
-        req.destroy();
-        if (!done) scheduleRetry();
-      });
-    }
-
-    function scheduleRetry() {
-      if (done) return;
-      if (Date.now() - start > timeout) {
-        done = true;
-        nextServer?.removeListener("exit", onEarlyExit);
-        reject(new Error(`Next.js server did not respond within ${timeout / 1000} seconds`));
-        return;
-      }
-      setTimeout(check, 500);
-    }
-
-    check();
-  });
-}
-
-// ── Start Next.js server ──────────────────────────────────────────────
-function startNextServer() {
+//   - resolves when "✓ Ready" appears in server output (stdout or stderr)
+//   - rejects immediately if server exits with non-zero code
+//   - rejects after timeout ms with no ready signal
+//
+// Why output-watching instead of HTTP polling:
+//   On Windows, Electron's network stack can intercept/block http.get()
+//   to loopback addresses from the main process even when the server is
+//   fully listening. Watching stdout/stderr is OS-independent and faster.
+function startNextServer(timeout = 90000) {
   const appDir = getNextServerPath();
   const appDataDir = getAppDataDir();
 
@@ -185,8 +135,6 @@ function startNextServer() {
       .digest("hex"),
   };
 
-  // In prod: server.js lives inside the standalone dir alongside node_modules.
-  // Use standaloneDir as cwd so Node resolves require('next') from the right place.
   const standaloneDir = DEV_MODE ? appDir : path.join(appDir, ".next", "standalone");
   const serverScript = DEV_MODE
     ? path.join(appDir, "node_modules", ".bin", "next")
@@ -196,8 +144,7 @@ function startNextServer() {
 
   if (!DEV_MODE) env.ELECTRON_RUN_AS_NODE = "1";
 
-  log("Starting Next.js server:", serverScript, args.join(" "));
-  log("App dir:", appDir);
+  log("Starting Next.js server:", serverScript);
   log("Standalone dir:", standaloneDir);
   log("App data dir:", appDataDir);
 
@@ -205,41 +152,73 @@ function startNextServer() {
     DEV_MODE ? serverScript : process.execPath,
     DEV_MODE ? args : [serverScript],
     {
-      cwd: standaloneDir, // cwd = standalone dir so require('next') resolves from node_modules here
+      cwd: standaloneDir,
       env,
-      stdio: DEV_MODE ? "inherit" : ["ignore", "pipe", "pipe"],
+      stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     }
   );
 
-  // Capture last N lines of stderr for crash diagnosis
-  const recentStderr = [];
-  if (!DEV_MODE) {
-    nextServer.stdout?.on("data", (d) => log("[next]", d.toString().trimEnd()));
-    nextServer.stderr?.on("data", (d) => {
-      const line = d.toString().trimEnd();
-      logErr("[next]", line);
-      recentStderr.push(line);
-      if (recentStderr.length > 20) recentStderr.shift(); // keep last 20 lines
-    });
-  }
+  // Return a promise that resolves when the server signals it's ready
+  return new Promise((resolve, reject) => {
+    let done = false;
+    const recentOutput = [];
 
-  nextServer.on("error", (err) => {
-    logErr("Failed to spawn Next.js server:", err.message);
-    dialog.showErrorBox(
-      "Labora Error",
-      `Failed to start server: ${err.message}\n\nLog: ${path.join(getAppDataDir(), "labora-startup.log")}`
-    );
-    app.quit();
-  });
+    const succeed = () => {
+      if (done) return;
+      done = true;
+      log("Server ready signal received");
+      resolve();
+    };
 
-  nextServer.on("exit", (code, signal) => {
-    if (code !== 0 && code !== null) {
-      logErr(`Next.js server exited with code ${code}, signal ${signal}`);
-      if (recentStderr.length > 0) {
-        logErr("Last server output:\n" + recentStderr.join("\n"));
+    const fail = (reason) => {
+      if (done) return;
+      done = true;
+      reject(new Error(reason));
+    };
+
+    // Watch both stdout and stderr for the "Ready" signal
+    // Next.js 16 prints "✓ Ready" to stderr
+    const onData = (chunk) => {
+      const text = chunk.toString();
+      const lines = text.split(/\r?\n/).filter(Boolean);
+      for (const line of lines) {
+        log("[next]", line);
+        recentOutput.push(line);
+        if (recentOutput.length > 30) recentOutput.shift();
+        // Match Next.js ready signal — works across versions
+        if (line.includes("Ready") || line.includes("ready") || line.includes("✓")) {
+          succeed();
+        }
       }
-    }
+    };
+
+    nextServer.stdout.on("data", onData);
+    nextServer.stderr.on("data", onData);
+
+    // Fail fast if server crashes
+    nextServer.once("exit", (code, signal) => {
+      if (code !== 0 && code !== null) {
+        const lastOutput = recentOutput.slice(-10).join("\n");
+        logErr(`Server exited with code ${code}`);
+        logErr("Last output:\n" + lastOutput);
+        fail(
+          `Server crashed (exit code ${code}).\n\n` +
+          `Last output:\n${lastOutput}\n\n` +
+          `See log: ${path.join(appDataDir, "labora-startup.log")}`
+        );
+      }
+    });
+
+    nextServer.on("error", (err) => {
+      logErr("Spawn error:", err.message);
+      fail(`Failed to start server: ${err.message}`);
+    });
+
+    // Timeout fallback
+    setTimeout(() => {
+      fail(`Server did not signal ready within ${timeout / 1000} seconds.\nSee log: ${path.join(appDataDir, "labora-startup.log")}`);
+    }, timeout);
   });
 }
 
@@ -261,30 +240,15 @@ async function createWindow() {
     backgroundColor: "#070d1a",
   });
 
+  // Show loading screen while server starts
   mainWindow.loadURL(
-    "data:text/html,<html><body style='background:#070d1a;display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;color:#94a3b8'>" +
+    "data:text/html,<html><body style='background:#070d1a;display:flex;align-items:center;" +
+    "justify-content:center;height:100vh;font-family:sans-serif;color:#94a3b8'>" +
     "<div style='text-align:center'><div style='font-size:48px;margin-bottom:16px'>🧪</div>" +
     "<h2 style='margin:0;font-size:20px'>Labora is starting...</h2>" +
     "<p style='margin-top:8px;font-size:14px'>Please wait a moment</p></div></body></html>"
   );
   mainWindow.show();
-
-  try {
-    await waitForServer();
-    log("Server ready — loading app");
-    mainWindow.loadURL(`http://${HOST}:${PORT}`);
-  } catch (err) {
-    const logPath = path.join(getAppDataDir(), "labora-startup.log");
-    logErr("Server failed to start:", err.message);
-    dialog.showErrorBox(
-      "Labora Startup Error",
-      "The application server failed to start. Please restart Labora.\n\n" +
-      err.message +
-      (DEV_MODE ? "" : `\n\nDiagnostics log: ${logPath}`)
-    );
-    app.quit();
-    return;
-  }
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith("http")) shell.openExternal(url);
@@ -298,7 +262,6 @@ async function createWindow() {
 app.whenReady().then(async () => {
   logStream = openLogStream();
 
-  // Skip license check in dev mode
   if (!DEV_MODE) {
     const licenseCheck = checkStoredLicense(app);
     log("License check:", licenseCheck.licensed ? "VALID" : "NOT LICENSED");
@@ -306,14 +269,31 @@ app.whenReady().then(async () => {
     if (!licenseCheck.licensed) {
       log("Showing activation window. Machine ID:", licenseCheck.machineId);
       showActivationWindow();
-      return; // Don't start Next.js — wait for activation → restart
+      return;
     }
 
     log("Licensed to:", licenseCheck.payload?.clientName ?? "unknown");
   }
 
-  startNextServer();
+  // Create window immediately (shows loading screen)
   await createWindow();
+
+  // Start server and wait for ready signal
+  try {
+    await startNextServer();
+    // Small delay to let the server fully initialize after Ready signal
+    await new Promise(r => setTimeout(r, 500));
+    log("Loading app at http://" + HOST + ":" + PORT);
+    mainWindow?.loadURL(`http://${HOST}:${PORT}`);
+  } catch (err) {
+    logErr("Startup failed:", err.message);
+    dialog.showErrorBox(
+      "Labora Startup Error",
+      "The application server failed to start. Please restart Labora.\n\n" + err.message
+    );
+    app.quit();
+    return;
+  }
 
   app.on("activate", () => {
     if (!mainWindow) createWindow();
