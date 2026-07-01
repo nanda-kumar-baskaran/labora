@@ -4,12 +4,18 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { AlertCircle, Zap, HardDrive, CheckCircle, Database, Shield, Check } from "lucide-react";
+import { AlertCircle, Zap, HardDrive, CheckCircle, Database, Shield, Check, Cloud, Globe } from "lucide-react";
 
-const features = [
+const localFeatures = [
   { icon: Database, label: "Local SQLite Database", desc: "Your data never leaves this device" },
   { icon: Shield, label: "Encrypted Passwords", desc: "bcrypt-secured credentials" },
   { icon: Zap, label: "Instant Access", desc: "No internet required, ever" },
+];
+
+const cloudFeatures = [
+  { icon: Cloud, label: "Supabase Cloud Database", desc: "Secure, hosted Postgres database" },
+  { icon: Globe, label: "Access From Anywhere", desc: "Works on any device, any browser" },
+  { icon: Shield, label: "Supabase Auth", desc: "Enterprise-grade authentication" },
 ];
 
 export default function SetupPage() {
@@ -20,8 +26,11 @@ export default function SetupPage() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [checking, setChecking] = useState(true);
   const [step, setStep] = useState(0);
+  const [mode, setMode] = useState<"local" | "cloud">("cloud");
 
   useEffect(() => {
+    const m = (document.querySelector('meta[name="storage-mode"]') as HTMLMetaElement)?.content as "local" | "cloud";
+    setMode(m === "local" ? "local" : "cloud");
     fetch("/api/setup").then(r => r.json()).then(d => {
       if (!d.needsSetup) {
         router.replace("/login");
@@ -73,7 +82,11 @@ export default function SetupPage() {
     });
     const data = await res.json();
     if (!res.ok) { setError(data.error ?? "Setup failed. Please try again."); setLoading(false); return; }
-    router.push("/dashboard");
+    if (mode === "cloud") {
+      router.push("/login?setup=done");
+    } else {
+      router.push("/dashboard");
+    }
     router.refresh();
   }
 
@@ -104,15 +117,16 @@ export default function SetupPage() {
           </div>
 
           <h2 className="text-4xl font-black text-white leading-tight mb-4">
-            Your lab,<br />
-            <span className="text-amber-300">completely offline.</span>
+            {mode === "cloud" ? <>Your lab,<br /><span className="text-amber-300">in the cloud.</span></> : <>Your lab,<br /><span className="text-amber-300">completely offline.</span></>}
           </h2>
           <p className="text-red-100 text-lg mb-10 leading-relaxed">
-            Set up takes 30 seconds. Your data stays on this device, always.
+            {mode === "cloud"
+              ? "Set up takes 30 seconds. Access from any device, anywhere."
+              : "Set up takes 30 seconds. Your data stays on this device, always."}
           </p>
 
           <div className="space-y-4">
-            {features.map((f) => (
+            {(mode === "cloud" ? cloudFeatures : localFeatures).map((f) => (
               <div key={f.label} className="flex items-center gap-4 p-4 rounded-xl bg-white/10 border border-white/20">
                 <div className="h-10 w-10 rounded-lg bg-white/20 flex items-center justify-center flex-shrink-0">
                   <f.icon className="h-5 w-5 text-white" />
@@ -281,10 +295,15 @@ export default function SetupPage() {
             </form>
 
             <div className="mt-4 flex items-start gap-2 p-3 rounded-lg bg-gray-50 border border-gray-200">
-              <HardDrive className="h-4 w-4 text-gray-400 shrink-0 mt-0.5" />
+              {mode === "cloud" ? <Cloud className="h-4 w-4 text-gray-400 shrink-0 mt-0.5" /> : <HardDrive className="h-4 w-4 text-gray-400 shrink-0 mt-0.5" />}
               <p className="text-xs text-gray-500">
-                Data stored locally on this device. Back up <code className="bg-gray-200 px-1 rounded text-gray-700">labora.db</code> regularly.
+                {mode === "cloud"
+                  ? "Your lab data is stored in Supabase cloud. After setup, sign in to access your dashboard."
+                  : <>Data stored locally on this device. Back up <code className="bg-gray-200 px-1 rounded text-gray-700">labora.db</code> regularly.</>}
               </p>
+            </div>
+            <div className="mt-2 text-center">
+              <a href="/login" className="text-xs text-gray-400 hover:text-gray-600">Already have an account? Sign in →</a>
             </div>
           </div>
         </div>

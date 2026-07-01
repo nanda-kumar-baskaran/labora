@@ -10,18 +10,25 @@ const setupSchema = z.object({
 });
 
 export async function GET() {
-  if (process.env.STORAGE_MODE !== "local") {
-    return NextResponse.json({ error: "Setup only available in local mode" }, { status: 400 });
+  const mode = process.env.STORAGE_MODE ?? "cloud";
+
+  if (mode === "local") {
+    const { getRepository } = await import("@/lib/db");
+    const repo = await getRepository();
+    const users = await repo.listUsers("local-tenant-00000001");
+    return NextResponse.json({ needsSetup: users.length === 0 });
   }
-  const { getRepository } = await import("@/lib/db");
-  const repo = await getRepository();
-  const users = await repo.listUsers("local-tenant-00000001");
-  return NextResponse.json({ needsSetup: users.length === 0 });
+
+  // Cloud mode: setup is always available (multi-tenant, each lab self-registers)
+  return NextResponse.json({ needsSetup: true, mode: "cloud" });
 }
 
 export async function POST(req: NextRequest) {
-  if (process.env.STORAGE_MODE !== "local") {
-    return NextResponse.json({ error: "Setup only available in local mode" }, { status: 400 });
+  const mode = process.env.STORAGE_MODE ?? "cloud";
+
+  if (mode !== "local") {
+    // Cloud mode: create Supabase auth user + tenant + users row
+    return handleCloudSetup(req);
   }
   const body = await req.json();
   const parsed = setupSchema.safeParse(body);
@@ -70,6 +77,85 @@ export async function POST(req: NextRequest) {
   const res = NextResponse.json({ success: true, message: "Lab created with built-in test catalog" });
   res.cookies.set(name, value, options as any);
   return res;
+}
+
+// ── Cloud mode setup ──────────────────────────────────────────────────
+async function handleCloudSetup(req: NextRequest) {
+  const body = await req.json();
+  const parsed = setupSchema.safeParse(body);
+  if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+
+  const { createAdminClient } = await import("@/lib/supabase/server");
+  const { randomUUID } = await import("crypto");
+  const admin = await createAdminClient();
+
+  // 1. Create Supabase auth user
+  const { data: authData, error: authErr } = await admin.auth.admin.createUser({
+    email: parsed.data.email,
+    password: parsed.data.password,
+    email_confirm: true,
+    user_metadata: { full_name: parsed.data.full_name },
+  });
+  if (authErr || !authData.user) {
+    return NextResponse.json({ error: authErr?.message ?? "Failed to create user" }, { status: 400 });
+  }
+
+  const tenantId = randomUUID();
+  const slug = parsed.data.lab_name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + "-" + tenantId.slice(0, 6);
+
+  // 2. Create tenant
+  const { error: tenantErr } = await admin.from("tenants").insert({
+    id: tenantId,
+    name: parsed.data.lab_name,
+    slug,
+    plan: "starter",
+    report_header: parsed.data.lab_name,
+    report_footer: `${parsed.data.lab_name} — Report verified by licensed pathologist`,
+  });
+  if (tenantErr) {
+    // Rollback auth user
+    await admin.auth.admin.deleteUser(authData.user.id);
+    return NextResponse.json({ error: tenantErr.message }, { status: 500 });
+  }
+
+  // 3. Create users row (links auth user to tenant)
+  const { error: userErr } = await admin.from("users").insert({
+    id: authData.user.id,
+    tenant_id: tenantId,
+    full_name: parsed.data.full_name,
+    role: "admin",
+    email: parsed.data.email,
+    is_active: true,
+  });
+  if (userErr) {
+    await admin.auth.admin.deleteUser(authData.user.id);
+    await admin.from("tenants").delete().eq("id", tenantId);
+    return NextResponse.json({ error: userErr.message }, { status: 500 });
+  }
+
+  // 4. Seed test catalog in background
+  seedCloudTestCatalog(admin, tenantId).catch(e =>
+    console.error("[cloud-setup] Test catalog seeding failed:", e)
+  );
+
+  return NextResponse.json({ success: true, message: "Lab created! Please sign in." });
+}
+
+async function seedCloudTestCatalog(admin: any, tenantId: string) {
+  const { SEED_TESTS } = await import("@/lib/db/seed-tests");
+  const tests = SEED_TESTS.map((t: any) => ({
+    tenant_id: tenantId,
+    name: t.name,
+    short_code: t.short_code,
+    category: t.category,
+    sample_type: t.sample_type,
+    reference_range: t.reference_range,
+    unit: t.unit,
+    price: t.price,
+    turnaround_hrs: t.turnaround_hrs,
+    is_active: true,
+  }));
+  await admin.from("test_catalog").insert(tests);
 }
 
 async function seedTestCatalog(repo: any, tenantId: string) {

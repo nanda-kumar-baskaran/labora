@@ -5,7 +5,7 @@ export async function updateSession(request: NextRequest) {
   const mode = process.env.STORAGE_MODE ?? "cloud";
 
   // Public paths — always allowed
-  const publicPaths = ["/login", "/r/", "/api/auth/login", "/api/auth/logout", "/api/r/", "/api/storage/", "/setup", "/api/setup", "/reset", "/api/admin/reset"];
+  const publicPaths = ["/login", "/r/", "/api/auth/login", "/api/auth/logout", "/api/r/", "/api/storage/", "/setup", "/api/setup", "/reset", "/api/admin/reset", "/forgot-password", "/reset-password"];
   const isPublic = publicPaths.some(p => pathname.startsWith(p));
 
   if (mode === "local") {

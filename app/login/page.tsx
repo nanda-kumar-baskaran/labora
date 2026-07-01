@@ -19,7 +19,8 @@ function LoginContent() {
   const [needsSetup, setNeedsSetup] = useState(false);
   const [checkingSetup, setCheckingSetup] = useState(true);
 
-  // Show reason banner if redirected from auto-logout
+  // Show reason banner if redirected from auto-logout or setup
+  const setupDone = searchParams.get("setup") === "done";
   const logoutReason = searchParams.get("reason");
   const reasonMessage = logoutReason === "inactivity"
     ? "You were logged out due to 15 minutes of inactivity."
@@ -99,6 +100,14 @@ function LoginContent() {
           </div>
         </div>
 
+        {/* Setup done banner */}
+        {setupDone && (
+          <div className="flex items-center gap-2 mb-4 px-4 py-3 rounded-lg bg-green-50 border border-green-200 text-green-800 text-sm">
+            <Info className="h-4 w-4 shrink-0" />
+            Lab created successfully! Sign in with your new credentials.
+          </div>
+        )}
+
         {/* Auto-logout reason banner */}
         {reasonMessage && (
           <div className="flex items-center gap-2 mb-4 px-4 py-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-sm">
@@ -153,33 +162,51 @@ function LoginContent() {
             </Button>
           </form>
 
-          {/* Setup link — shown in local mode when no lab is set up */}
-          {mode === "local" && !checkingSetup && (
+          {/* Setup / recovery links — shown for both modes */}
+          {!checkingSetup && (
             <div className="mt-6 pt-5 border-t border-gray-100 text-center">
-              {needsSetup ? (
-                <>
-                  <p className="text-sm text-gray-500 mb-2">First time using Labora?</p>
-                  <a
-                    href="/setup"
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors"
-                  >
-                    <Zap className="h-4 w-4" />
-                    Set Up Your Lab
-                  </a>
-                </>
+              {mode === "local" ? (
+                needsSetup ? (
+                  <>
+                    <p className="text-sm text-gray-500 mb-2">First time using Labora?</p>
+                    <a
+                      href="/setup"
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors"
+                    >
+                      <Zap className="h-4 w-4" />
+                      Set Up Your Lab
+                    </a>
+                  </>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-xs text-gray-500">Lab already configured. Sign in above.</p>
+                    <p className="text-xs text-gray-400">
+                      Forgot your password?{" "}
+                      <a href="/reset" className="text-red-600 hover:underline font-medium">
+                        Recover access →
+                      </a>
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      Need to reconfigure?{" "}
+                      <a href="/reset" className="text-gray-400 hover:underline">
+                        Emergency reset
+                      </a>
+                    </p>
+                  </div>
+                )
               ) : (
-                <div className="space-y-2">
-                  <p className="text-xs text-gray-500">Lab already configured. Sign in above.</p>
+                // Cloud mode
+                <div className="space-y-3">
                   <p className="text-xs text-gray-400">
                     Forgot your password?{" "}
-                    <a href="/reset" className="text-red-600 hover:underline font-medium">
-                      Recover access →
+                    <a href="/forgot-password" className="text-red-600 hover:underline font-medium">
+                      Reset it →
                     </a>
                   </p>
                   <p className="text-xs text-gray-400">
-                    Need to reconfigure?{" "}
-                    <a href="/reset" className="text-gray-400 hover:underline">
-                      Emergency reset
+                    New lab?{" "}
+                    <a href="/setup" className="text-red-600 hover:underline font-medium">
+                      Create your lab →
                     </a>
                   </p>
                 </div>
