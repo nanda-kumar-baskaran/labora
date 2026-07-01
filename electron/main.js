@@ -106,25 +106,58 @@ ipcMain.handle("restart-app", () => {
 });
 
 // ── Wait for Next.js server to be ready ──────────────────────────────
+// Returns a Promise that:
+//   - resolves when the server responds on /
+//   - rejects immediately if the server process exits with non-zero code
+//   - rejects after `timeout` ms if the server never responds
 function waitForServer(timeout = 60000) {
   const url = `http://${HOST}:${PORT}/`;
   return new Promise((resolve, reject) => {
+    let done = false;
     const start = Date.now();
+
+    // Fail fast: if the server crashes, don't wait the full timeout
+    const onEarlyExit = (code, signal) => {
+      if (done) return;
+      done = true;
+      reject(new Error(
+        `Next.js server exited early (code ${code}, signal ${signal}).\n` +
+        `Check log for details.`
+      ));
+    };
+    nextServer?.once("exit", onEarlyExit);
+
     function check() {
+      if (done) return;
       const req = http.get(url, (res) => {
+        if (done) { res.resume(); return; }
         res.resume();
+        done = true;
+        nextServer?.removeListener("exit", onEarlyExit);
         resolve();
       });
-      req.on("error", retry);
-      req.setTimeout(3000, () => { req.destroy(); retry(); });
+      req.on("error", () => {
+        // Server not ready yet — schedule next attempt
+        if (!done) scheduleRetry();
+      });
+      // Short per-request timeout so we don't accumulate hanging sockets
+      req.setTimeout(2000, () => {
+        req.destroy();
+        if (!done) scheduleRetry();
+      });
     }
-    function retry() {
+
+    function scheduleRetry() {
+      if (done) return;
       if (Date.now() - start > timeout) {
-        reject(new Error(`Next.js server did not start within ${timeout / 1000} seconds`));
+        done = true;
+        nextServer?.removeListener("exit", onEarlyExit);
+        reject(new Error(`Next.js server did not respond within ${timeout / 1000} seconds`));
         return;
       }
       setTimeout(check, 500);
     }
+
     check();
   });
 }
@@ -179,9 +212,16 @@ function startNextServer() {
     }
   );
 
+  // Capture last N lines of stderr for crash diagnosis
+  const recentStderr = [];
   if (!DEV_MODE) {
     nextServer.stdout?.on("data", (d) => log("[next]", d.toString().trimEnd()));
-    nextServer.stderr?.on("data", (d) => logErr("[next]", d.toString().trimEnd()));
+    nextServer.stderr?.on("data", (d) => {
+      const line = d.toString().trimEnd();
+      logErr("[next]", line);
+      recentStderr.push(line);
+      if (recentStderr.length > 20) recentStderr.shift(); // keep last 20 lines
+    });
   }
 
   nextServer.on("error", (err) => {
@@ -196,6 +236,9 @@ function startNextServer() {
   nextServer.on("exit", (code, signal) => {
     if (code !== 0 && code !== null) {
       logErr(`Next.js server exited with code ${code}, signal ${signal}`);
+      if (recentStderr.length > 0) {
+        logErr("Last server output:\n" + recentStderr.join("\n"));
+      }
     }
   });
 }
