@@ -152,9 +152,12 @@ function startNextServer() {
       .digest("hex"),
   };
 
+  // In prod: server.js lives inside the standalone dir alongside node_modules.
+  // Use standaloneDir as cwd so Node resolves require('next') from the right place.
+  const standaloneDir = DEV_MODE ? appDir : path.join(appDir, ".next", "standalone");
   const serverScript = DEV_MODE
     ? path.join(appDir, "node_modules", ".bin", "next")
-    : path.join(appDir, ".next", "standalone", "server.js");
+    : path.join(standaloneDir, "server.js");
 
   const args = DEV_MODE ? ["start", "--port", String(PORT), "--hostname", HOST] : [];
 
@@ -162,13 +165,14 @@ function startNextServer() {
 
   log("Starting Next.js server:", serverScript, args.join(" "));
   log("App dir:", appDir);
+  log("Standalone dir:", standaloneDir);
   log("App data dir:", appDataDir);
 
   nextServer = spawn(
     DEV_MODE ? serverScript : process.execPath,
     DEV_MODE ? args : [serverScript],
     {
-      cwd: appDir,
+      cwd: standaloneDir, // cwd = standalone dir so require('next') resolves from node_modules here
       env,
       stdio: DEV_MODE ? "inherit" : ["ignore", "pipe", "pipe"],
       windowsHide: true,

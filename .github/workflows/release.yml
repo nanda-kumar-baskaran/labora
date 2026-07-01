@@ -60,24 +60,40 @@ jobs:
       - name: Build Next.js standalone
         run: npm run build
 
-      - name: Copy static assets and node_modules into standalone
+      - name: Prepare standalone bundle for packaging
         shell: bash
         run: |
+          # Copy static assets and public dir into standalone
           cp -r .next/static .next/standalone/.next/static || true
           cp -r public        .next/standalone/public || true
-          # Next.js standalone traces runtime deps into .next/standalone/node_modules
-          # but server.js also requires('next') which may not always be traced.
-          # Ensure next and @next are present — copy from root node_modules if missing.
+
+          # Ensure next is in standalone/node_modules (Next.js traces it,
+          # but copy from root if somehow missing)
           mkdir -p .next/standalone/node_modules
           if [ ! -d ".next/standalone/node_modules/next" ]; then
+            echo "next missing from standalone — copying from root node_modules"
             cp -r node_modules/next .next/standalone/node_modules/next
           fi
           if [ ! -d ".next/standalone/node_modules/@next" ]; then
             cp -r node_modules/@next .next/standalone/node_modules/@next || true
           fi
 
+          echo "standalone node_modules packages: $(ls .next/standalone/node_modules | wc -l)"
+          echo "next present: $(ls .next/standalone/node_modules/next/package.json)"
+
+          # CRITICAL: electron-builder detects package.json in the extraResources
+          # source dir and automatically injects '!**/node_modules/**' exclusion,
+          # stripping ALL node_modules from the bundle. Rename it so electron-builder
+          # treats this as a plain directory, not a Node app.
+          mv .next/standalone/package.json .next/standalone/package.json.bak
+
       - name: Build Electron (${{ matrix.platform }})
         run: npx --yes electron-builder build --${{ matrix.platform }} --publish never
+
+      - name: Restore standalone package.json
+        if: always()
+        shell: bash
+        run: mv .next/standalone/package.json.bak .next/standalone/package.json || true
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
