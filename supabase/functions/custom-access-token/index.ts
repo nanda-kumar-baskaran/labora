@@ -1,49 +1,56 @@
 /**
- * Supabase Custom Access Token Hook
- *
- * Injects tenant_id and role into the JWT at login time.
- * This enables RLS policies to read auth.tenant_id() without
- * any extra DB queries per request.
- *
- * CRITICAL: must return { ...claims, tenant_id, role }
- * NOT { tenant_id, role } alone — that would discard sub/aud/exp.
- *
- * Deploy: supabase functions deploy custom-access-token
- * Register: Supabase Dashboard → Auth → Hooks → Custom Access Token Hook
+ * Supabase Custom Access Token Hook — debug version
  */
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 Deno.serve(async (req: Request) => {
+  let claims: Record<string, unknown> = {};
+
   try {
     const payload = await req.json();
-    // Supabase sends: { user_id, claims, authentication_method, ... }
-    const { user_id, claims } = payload;
+    const { user_id } = payload;
+    claims = payload.claims ?? {};
 
     if (!user_id) {
-      return Response.json({ ...claims }, { status: 200 });
+      return Response.json({ claims });
     }
 
-    // Use service role key to bypass RLS (hook runs before RLS)
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
+    const url = Deno.env.get("SUPABASE_URL") ?? "MISSING_URL";
+    const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "MISSING_KEY";
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "MISSING_ANON";
 
-    const { data: user } = await supabase
+    // Log env var availability (not values)
+    console.log("URL present:", url !== "MISSING_URL", "len:", url.length);
+    console.log("SRK present:", key !== "MISSING_KEY", "len:", key.length);
+    console.log("ANON present:", anonKey !== "MISSING_ANON");
+
+    const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2.39.0");
+
+    const admin = createClient(url, key, {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: `Bearer ${key}` } }
+    });
+
+    const { data: user, error } = await admin
       .from("users")
       .select("tenant_id, role")
       .eq("id", user_id)
       .single();
 
-    // Merge into existing claims — never replace them
+    console.log("DB result:", JSON.stringify({ user, error: error?.message }));
+
+    if (error || !user) {
+      return Response.json({ claims });
+    }
+
     return Response.json({
-      ...claims,
-      tenant_id: user?.tenant_id ?? null,
-      role: user?.role ?? "staff",
+      claims: {
+        ...claims,
+        tenant_id: user.tenant_id,
+        role: user.role,
+      }
     });
   } catch (err) {
-    console.error("Custom access token hook error:", err);
-    // Return original claims on error — don't break login
-    return Response.json({}, { status: 200 });
+    console.error("Hook error:", String(err));
+    return Response.json({ claims });
   }
 });
