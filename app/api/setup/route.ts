@@ -103,7 +103,7 @@ async function handleCloudSetup(req: NextRequest) {
   const tenantId = randomUUID();
   const slug = parsed.data.lab_name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + "-" + tenantId.slice(0, 6);
 
-  // 2. Create tenant
+  // 2. Create tenant — starts expired until payment received
   const { error: tenantErr } = await admin.from("tenants").insert({
     id: tenantId,
     name: parsed.data.lab_name,
@@ -111,6 +111,8 @@ async function handleCloudSetup(req: NextRequest) {
     plan: "starter",
     report_header: parsed.data.lab_name,
     report_footer: `${parsed.data.lab_name} — Report verified by licensed pathologist`,
+    subscription_status: "expired",
+    subscription_end_date: "2000-01-01T00:00:00Z",
   });
   if (tenantErr) {
     // Rollback auth user

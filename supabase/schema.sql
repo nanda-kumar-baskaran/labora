@@ -23,10 +23,10 @@ CREATE TABLE IF NOT EXISTS tenants (
   report_footer   TEXT,
   is_active              BOOLEAN NOT NULL DEFAULT TRUE,
   plan                   TEXT NOT NULL DEFAULT 'starter',
-  -- Subscription management
-  subscription_status    TEXT NOT NULL DEFAULT 'trial'
+  -- Subscription management (new labs start blocked until payment received)
+  subscription_status    TEXT NOT NULL DEFAULT 'expired'
                            CHECK (subscription_status IN ('trial','active','expired','cancelled')),
-  subscription_end_date  TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '30 days'),
+  subscription_end_date  TIMESTAMPTZ NOT NULL DEFAULT '2000-01-01T00:00:00Z',
   created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

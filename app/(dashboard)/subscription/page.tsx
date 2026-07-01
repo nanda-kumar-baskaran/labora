@@ -27,42 +27,13 @@ const STATUS_COLORS: Record<string, string> = {
 export default function SubscriptionPage() {
   const [sub, setSub] = useState<SubInfo | null>(null);
   const [loading, setLoading] = useState(true);
-  const [extending, setExtending] = useState(false);
-  const [months, setMonths] = useState(1);
-  const [message, setMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
 
-  async function load() {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/admin/subscription");
-      if (res.ok) setSub(await res.json());
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function extend() {
-    setExtending(true);
-    setMessage(null);
-    try {
-      const res = await fetch("/api/admin/subscription", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ months }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setMessage({ text: data.message ?? "Subscription extended!", type: "success" });
-        await load();
-      } else {
-        setMessage({ text: data.error ?? "Failed to extend subscription", type: "error" });
-      }
-    } finally {
-      setExtending(false);
-    }
-  }
-
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    fetch("/api/admin/subscription")
+      .then(r => r.ok ? r.json() : null)
+      .then(setSub)
+      .finally(() => setLoading(false));
+  }, []);
 
   const endDate = sub?.end_date ? new Date(sub.end_date) : null;
 
@@ -131,49 +102,17 @@ export default function SubscriptionPage() {
             </div>
           )}
 
-          {/* Extend subscription (demo / manual mode) */}
+          {/* How to renew */}
           <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <h2 className="font-semibold text-gray-800 mb-1">Extend Subscription</h2>
-            <p className="text-sm text-gray-500 mb-4">
-              In the current plan, subscription is extended manually. Contact your Labora administrator or use the controls below (admin only).
+            <h2 className="font-semibold text-gray-800 mb-1">How to Renew</h2>
+            <p className="text-sm text-gray-500 mb-3">
+              Subscriptions are activated manually after payment confirmation. To renew:
             </p>
-
-            {message && (
-              <div className={`mb-4 px-4 py-3 rounded-lg text-sm font-medium ${
-                message.type === "success" ? "bg-green-50 text-green-700 border border-green-200" : "bg-red-50 text-red-700 border border-red-200"
-              }`}>
-                {message.text}
-              </div>
-            )}
-
-            <div className="flex items-center gap-3">
-              <label className="text-sm text-gray-600 whitespace-nowrap">Extend by</label>
-              <select
-                value={months}
-                onChange={e => setMonths(Number(e.target.value))}
-                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                {[1, 2, 3, 6, 12].map(m => (
-                  <option key={m} value={m}>{m} month{m !== 1 ? "s" : ""}</option>
-                ))}
-              </select>
-              <button
-                onClick={extend}
-                disabled={extending}
-                className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {extending ? "Extending…" : "Extend Subscription"}
-              </button>
-            </div>
-            <p className="text-xs text-gray-400 mt-3">
-              Tip: You can also update subscription details directly in the Supabase dashboard under the <code className="bg-gray-100 px-1 rounded">tenants</code> table.
-            </p>
-          </div>
-
-          {/* Pricing note */}
-          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-700">
-            <p className="font-semibold mb-1">Monthly Plan — ₹999/month</p>
-            <p>Includes unlimited patients, orders, reports, and up to 10 staff users. To upgrade or get a custom quote, contact <a href="mailto:support@labora.app" className="underline">support@labora.app</a>.</p>
+            <ol className="list-decimal list-inside space-y-1.5 text-sm text-gray-600">
+              <li>Make the payment to your Labora provider</li>
+              <li>Contact support with your lab name and payment confirmation</li>
+              <li>Access will be restored within 24 hours</li>
+            </ol>
           </div>
         </div>
       ) : (
