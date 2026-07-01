@@ -1,15 +1,9 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toast";
-import { ArrowLeft, CheckCircle, Save, Pencil, X, History } from "lucide-react";
+import { ArrowLeft, CheckCircle, Save, Pencil, History, ChevronRight } from "lucide-react";
 import Link from "next/link";
 
 interface TestResult {
@@ -25,17 +19,34 @@ interface TestResult {
   test: {
     name: string;
     short_code: string;
+    category?: string;
     reference_range?: string;
     unit?: string;
     sample_type?: string;
   };
 }
 
-const FLAG_COLOR: Record<string, string> = {
-  normal: "text-green-600",
-  low: "text-amber-600",
-  high: "text-amber-600",
-  critical: "text-red-600 font-bold",
+type RowDraft = {
+  result_value: string;
+  result_unit: string;
+  result_flag: string;
+  result_notes: string;
+  dirty: boolean;
+  saving: boolean;
+};
+
+const FLAG_STYLES: Record<string, string> = {
+  normal:   "text-emerald-700 bg-emerald-50 border-emerald-200",
+  low:      "text-amber-700  bg-amber-50  border-amber-200",
+  high:     "text-amber-700  bg-amber-50  border-amber-200",
+  critical: "text-red-700    bg-red-50    border-red-200 font-bold",
+};
+
+const FLAG_BADGE: Record<string, string> = {
+  normal:   "bg-emerald-100 text-emerald-700",
+  low:      "bg-amber-100   text-amber-700",
+  high:     "bg-amber-100   text-amber-700",
+  critical: "bg-red-100     text-red-700 font-bold",
 };
 
 export default function ResultsPage() {
@@ -43,89 +54,101 @@ export default function ResultsPage() {
   const orderId = params.id;
   const { toast } = useToast();
   const [orderTests, setOrderTests] = useState<TestResult[]>([]);
-  const [results, setResults] = useState<Record<string, Partial<TestResult>>>({});
-  const [saving, setSaving] = useState<Record<string, boolean>>({});
-  const [editing, setEditing] = useState<Set<string>>(new Set());
+  const [drafts, setDrafts] = useState<Record<string, RowDraft>>({});
   const [loading, setLoading] = useState(true);
+  const [editingIds, setEditingIds] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    fetch(`/api/orders/${orderId}`)
-      .then(r => {
-        if (!r.ok) throw new Error("Failed to load order");
-        return r.json();
-      })
-      .then(d => {
-        const tests = d.order?.order_tests ?? [];
-        setOrderTests(tests);
-        const initial: Record<string, Partial<TestResult>> = {};
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/orders/${orderId}`);
+      if (!r.ok) throw new Error("Failed to load");
+      const d = await r.json();
+      const tests: TestResult[] = d.order?.order_tests ?? [];
+      setOrderTests(tests);
+      setDrafts(prev => {
+        const next: Record<string, RowDraft> = {};
         tests.forEach((t: TestResult) => {
-          initial[t.id] = {
+          next[t.id] = prev[t.id] ?? {
             result_value: t.result_value ?? "",
-            result_unit: t.result_unit ?? t.test?.unit ?? "",
-            result_flag: t.result_flag ?? "",
+            result_unit:  t.result_unit  ?? t.test?.unit ?? "",
+            result_flag:  t.result_flag  ?? "",
             result_notes: t.result_notes ?? "",
+            dirty: false,
+            saving: false,
           };
         });
-        setResults(initial);
-      })
-      .catch(err => {
-        console.error(err);
-        toast("Failed to load order tests", "error");
-      })
-      .finally(() => setLoading(false));
+        return next;
+      });
+    } catch {
+      toast("Failed to load order tests", "error");
+    } finally {
+      setLoading(false);
+    }
   }, [orderId]);
 
-  function set(testId: string, key: string, value: string) {
-    setResults(prev => ({ ...prev, [testId]: { ...prev[testId], [key]: value } }));
-  }
+  useEffect(() => { load(); }, [load]);
 
-  function startEdit(testId: string) {
-    setEditing(prev => new Set([...prev, testId]));
-  }
-
-  function cancelEdit(testId: string, ot: TestResult) {
-    // Restore original values
-    setResults(prev => ({
+  function setField(id: string, key: keyof RowDraft, value: string) {
+    setDrafts(prev => ({
       ...prev,
-      [testId]: {
-        result_value: ot.result_value ?? "",
-        result_unit: ot.result_unit ?? ot.test?.unit ?? "",
-        result_flag: ot.result_flag ?? "",
-        result_notes: ot.result_notes ?? "",
-      }
+      [id]: { ...prev[id], [key]: value, dirty: true },
     }));
-    setEditing(prev => { const next = new Set(prev); next.delete(testId); return next; });
   }
 
-  async function saveResult(ot: TestResult) {
-    const r = results[ot.id] ?? {};
-    if (!r.result_value?.trim()) { toast("Result value is required", "error"); return; }
-    setSaving(prev => ({ ...prev, [ot.id]: true }));
-    const payload = {
-      result_value: r.result_value,
-      result_unit: r.result_unit,
-      result_flag: r.result_flag || undefined,
-      result_notes: r.result_notes,
-      status: "completed",
-    };
+  function startEdit(id: string) {
+    setEditingIds(prev => new Set([...prev, id]));
+  }
+
+  function cancelEdit(id: string, ot: TestResult) {
+    setDrafts(prev => ({
+      ...prev,
+      [id]: {
+        result_value: ot.result_value ?? "",
+        result_unit:  ot.result_unit  ?? ot.test?.unit ?? "",
+        result_flag:  ot.result_flag  ?? "",
+        result_notes: ot.result_notes ?? "",
+        dirty: false,
+        saving: false,
+      },
+    }));
+    setEditingIds(prev => { const n = new Set(prev); n.delete(id); return n; });
+  }
+
+  async function saveRow(ot: TestResult) {
+    const d = drafts[ot.id];
+    if (!d?.result_value?.trim()) { toast("Result value is required", "error"); return; }
+    setDrafts(prev => ({ ...prev, [ot.id]: { ...prev[ot.id], saving: true } }));
     const res = await fetch(`/api/orders/${orderId}/tests/${ot.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        result_value: d.result_value,
+        result_unit:  d.result_unit,
+        result_flag:  d.result_flag || undefined,
+        result_notes: d.result_notes,
+        status: "completed",
+      }),
     });
     if (res.ok) {
       toast(`${ot.test.name} saved`, "success");
-      // Update local state
       setOrderTests(prev => prev.map(t => t.id === ot.id
-        ? { ...t, status: "completed", result_value: payload.result_value ?? "", result_unit: payload.result_unit ?? "", result_flag: payload.result_flag ?? "", result_notes: payload.result_notes ?? "" }
+        ? { ...t, status: "completed",
+            result_value: d.result_value, result_unit: d.result_unit,
+            result_flag: d.result_flag, result_notes: d.result_notes }
         : t
       ));
-      setEditing(prev => { const next = new Set(prev); next.delete(ot.id); return next; });
+      setDrafts(prev => ({ ...prev, [ot.id]: { ...prev[ot.id], dirty: false, saving: false } }));
+      setEditingIds(prev => { const n = new Set(prev); n.delete(ot.id); return n; });
     } else {
-      const d = await res.json();
-      toast(d.error ?? "Save failed", "error");
+      const data = await res.json();
+      toast(data.error ?? "Save failed", "error");
+      setDrafts(prev => ({ ...prev, [ot.id]: { ...prev[ot.id], saving: false } }));
     }
-    setSaving(prev => ({ ...prev, [ot.id]: false }));
+  }
+
+  async function saveAll() {
+    const pending = orderTests.filter(t => t.status !== "completed" || editingIds.has(t.id));
+    for (const ot of pending) await saveRow(ot);
   }
 
   if (loading) return (
@@ -135,9 +158,19 @@ export default function ResultsPage() {
   );
 
   const completedCount = orderTests.filter(t => t.status === "completed").length;
+  const total = orderTests.length;
+  const pct = total ? Math.round((completedCount / total) * 100) : 0;
+
+  // Group by category
+  const byCategory: Record<string, TestResult[]> = {};
+  orderTests.forEach(t => {
+    const cat = t.test.category ?? "Other";
+    (byCategory[cat] ??= []).push(t);
+  });
 
   return (
-    <div className="max-w-2xl">
+    <div className="max-w-6xl">
+      {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <Link href={`/orders/${orderId}`}>
           <Button variant="ghost" size="icon"><ArrowLeft className="h-4 w-4" /></Button>
@@ -145,180 +178,240 @@ export default function ResultsPage() {
         <div className="flex-1">
           <h1 className="text-2xl font-bold text-gray-900">Enter Results</h1>
           <p className="text-sm text-gray-500">
-            {completedCount} of {orderTests.length} completed
-            {completedCount > 0 && completedCount < orderTests.length && (
-              <span className="ml-2 text-amber-600">· {orderTests.length - completedCount} pending</span>
+            {completedCount} of {total} completed
+            {completedCount < total && (
+              <span className="ml-2 text-amber-600">· {total - completedCount} pending</span>
             )}
           </p>
         </div>
-        {/* Progress bar */}
-        <div className="w-24">
-          <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden">
-            <div
-              className="h-full bg-green-500 rounded-full transition-all duration-500"
-              style={{ width: `${orderTests.length ? (completedCount / orderTests.length) * 100 : 0}%` }}
-            />
+        {/* Progress */}
+        <div className="flex items-center gap-3">
+          <div className="w-32">
+            <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+              <div className="h-full bg-emerald-500 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
+            </div>
+            <p className="text-right text-xs text-gray-400 mt-0.5">{pct}%</p>
           </div>
-          <p className="text-right text-xs text-gray-400 mt-1">
-            {orderTests.length ? Math.round((completedCount / orderTests.length) * 100) : 0}%
-          </p>
+          {completedCount < total && (
+            <Button size="sm" onClick={saveAll} className="shrink-0">
+              <Save className="h-3.5 w-3.5 mr-1.5" />Save All
+            </Button>
+          )}
         </div>
       </div>
 
-      <div className="space-y-4">
-        {orderTests.map(ot => {
-          const r = results[ot.id] ?? {};
-          const isComplete = ot.status === "completed";
-          const isEditing = editing.has(ot.id);
-          const isEditable = !isComplete || isEditing;
-
+      {/* Table per category */}
+      <div className="space-y-6">
+        {Object.entries(byCategory).map(([category, tests]) => {
+          const catDone = tests.filter(t => t.status === "completed").length;
           return (
-            <Card
-              key={ot.id}
-              className={`transition-all ${isComplete && !isEditing ? "border-emerald-200" : isEditing ? "border-amber-300 ring-1 ring-amber-200" : "border-gray-200"}`}
-              style={isComplete && !isEditing ? { background: "rgba(16,185,129,0.03)" } : undefined}
-            >
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <CardTitle className="text-base flex items-center gap-2">
-                      {ot.test.name}
-                      <span className="text-xs font-normal text-gray-400 font-mono">{ot.test.short_code}</span>
-                    </CardTitle>
-                    {ot.test.sample_type && (
-                      <p className="text-xs text-gray-400 mt-0.5">Sample: {ot.test.sample_type}</p>
-                    )}
-                    {ot.test.reference_range && (
-                      <p className="text-xs text-gray-400">Ref: {ot.test.reference_range} {ot.test.unit ? `(${ot.test.unit})` : ""}</p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {isComplete && !isEditing && (
-                      <>
-                        <div className="text-right">
-                          <p className={`text-sm font-semibold ${r.result_flag ? FLAG_COLOR[r.result_flag] ?? "" : "text-gray-900"}`}>
-                            {ot.result_value} {ot.result_unit}
-                          </p>
-                          {ot.result_flag && (
-                            <p className={`text-xs ${FLAG_COLOR[ot.result_flag] ?? "text-gray-500"}`}>
-                              {ot.result_flag.toUpperCase()}
-                            </p>
-                          )}
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => startEdit(ot.id)}
-                          className="text-amber-600 hover:text-amber-700 hover:bg-amber-50 h-8 px-2"
-                          title="Edit result"
+            <div key={category} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              {/* Category header */}
+              <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-200">
+                <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">{category}</h2>
+                <span className="text-xs text-gray-500">{catDone}/{tests.length}</span>
+              </div>
+
+              {/* Table */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-100">
+                      <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 w-56">Test</th>
+                      <th className="text-left px-3 py-2.5 text-xs font-medium text-gray-500 w-48">Reference Range</th>
+                      <th className="text-left px-3 py-2.5 text-xs font-medium text-gray-500 w-32">Result *</th>
+                      <th className="text-left px-3 py-2.5 text-xs font-medium text-gray-500 w-24">Unit</th>
+                      <th className="text-left px-3 py-2.5 text-xs font-medium text-gray-500 w-28">Flag</th>
+                      <th className="text-left px-3 py-2.5 text-xs font-medium text-gray-500">Notes</th>
+                      <th className="px-3 py-2.5 w-24"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tests.map((ot, idx) => {
+                      const d = drafts[ot.id] ?? { result_value: "", result_unit: "", result_flag: "", result_notes: "", dirty: false, saving: false };
+                      const isDone = ot.status === "completed";
+                      const isEditing = editingIds.has(ot.id);
+                      const editable = !isDone || isEditing;
+                      const flagStyle = d.result_flag ? FLAG_STYLES[d.result_flag] ?? "" : "";
+
+                      return (
+                        <tr
+                          key={ot.id}
+                          className={[
+                            idx % 2 === 0 ? "bg-white" : "bg-gray-50/40",
+                            isDone && !isEditing ? "opacity-90" : "",
+                            isEditing ? "bg-amber-50/40" : "",
+                          ].join(" ")}
                         >
-                          <Pencil className="h-3.5 w-3.5 mr-1" />
-                          Edit
-                        </Button>
-                      </>
-                    )}
-                    {!isComplete && (
-                      <Badge variant="secondary">Pending</Badge>
-                    )}
-                    {isEditing && (
-                      <Badge variant="warning">Editing</Badge>
-                    )}
-                  </div>
-                </div>
+                          {/* Test name */}
+                          <td className="px-4 py-2.5">
+                            <div className="flex items-center gap-1.5">
+                              {isDone && !isEditing && (
+                                <CheckCircle className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                              )}
+                              <div>
+                                <p className="font-medium text-gray-800 leading-tight">{ot.test.name}</p>
+                                <p className="text-xs text-gray-400 font-mono">{ot.test.short_code}</p>
+                              </div>
+                            </div>
+                          </td>
 
-                {/* Correction notice */}
-                {isEditing && (
-                  <div className="flex items-center gap-2 mt-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
-                    <History className="h-3.5 w-3.5 shrink-0" />
-                    Correcting a completed result — previous value will be saved in the audit log
-                  </div>
-                )}
-              </CardHeader>
+                          {/* Reference range */}
+                          <td className="px-3 py-2.5">
+                            <p className="text-xs text-gray-500 leading-tight">
+                              {ot.test.reference_range ?? "—"}
+                              {ot.test.unit && ot.test.reference_range && (
+                                <span className="text-gray-400 ml-1">{ot.test.unit}</span>
+                              )}
+                            </p>
+                          </td>
 
-              {isEditable && (
-                <CardContent className="space-y-3 pt-0">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs">Result Value *</Label>
-                      <Input
-                        placeholder="e.g. 12.5"
-                        value={r.result_value ?? ""}
-                        onChange={e => set(ot.id, "result_value", e.target.value)}
-                        autoFocus={isEditing}
-                        className={!r.result_value ? "border-red-200" : ""}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Unit</Label>
-                      <Input
-                        placeholder={ot.test.unit ?? "e.g. mg/dL"}
-                        value={r.result_unit ?? ""}
-                        onChange={e => set(ot.id, "result_unit", e.target.value)}
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Flag</Label>
-                    <Select
-                      value={r.result_flag ?? ""}
-                      onChange={e => set(ot.id, "result_flag", e.target.value)}
-                    >
-                      <option value="">— Select flag —</option>
-                      <option value="normal">✓ Normal</option>
-                      <option value="low">↓ Low</option>
-                      <option value="high">↑ High</option>
-                      <option value="critical">⚠ Critical</option>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Notes (optional)</Label>
-                    <Textarea
-                      placeholder="Any observations or comments..."
-                      value={r.result_notes ?? ""}
-                      onChange={e => set(ot.id, "result_notes", e.target.value)}
-                      rows={2}
-                    />
-                  </div>
-                  <div className="flex items-center gap-2 pt-1">
-                    <Button
-                      size="sm"
-                      onClick={() => saveResult(ot)}
-                      loading={saving[ot.id]}
-                      disabled={!r.result_value?.trim()}
-                    >
-                      <Save className="h-3 w-3 mr-1.5" />
-                      {isEditing ? "Save Correction" : "Save Result"}
-                    </Button>
-                    {isEditing && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => cancelEdit(ot.id, ot)}
-                        className="text-gray-500"
-                      >
-                        <X className="h-3 w-3 mr-1.5" />
-                        Cancel
-                      </Button>
-                    )}
-                  </div>
-                </CardContent>
-              )}
-            </Card>
+                          {/* Result value */}
+                          <td className="px-3 py-2.5">
+                            {editable ? (
+                              <input
+                                type="text"
+                                value={d.result_value}
+                                onChange={e => setField(ot.id, "result_value", e.target.value)}
+                                placeholder="e.g. 12.5"
+                                className={[
+                                  "w-full px-2 py-1.5 text-sm rounded-lg border focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors",
+                                  !d.result_value ? "border-red-200 bg-red-50/30" : "border-gray-200",
+                                  flagStyle,
+                                ].join(" ")}
+                              />
+                            ) : (
+                              <span className={`text-sm font-semibold ${d.result_flag ? FLAG_STYLES[d.result_flag]?.split(" ")[0] ?? "text-gray-900" : "text-gray-900"}`}>
+                                {ot.result_value || "—"}
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Unit */}
+                          <td className="px-3 py-2.5">
+                            {editable ? (
+                              <input
+                                type="text"
+                                value={d.result_unit}
+                                onChange={e => setField(ot.id, "result_unit", e.target.value)}
+                                placeholder={ot.test.unit ?? "unit"}
+                                className="w-full px-2 py-1.5 text-sm rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              />
+                            ) : (
+                              <span className="text-sm text-gray-600">{ot.result_unit || ot.test.unit || "—"}</span>
+                            )}
+                          </td>
+
+                          {/* Flag */}
+                          <td className="px-3 py-2.5">
+                            {editable ? (
+                              <select
+                                value={d.result_flag}
+                                onChange={e => setField(ot.id, "result_flag", e.target.value)}
+                                className="w-full px-2 py-1.5 text-sm rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                              >
+                                <option value="">— flag —</option>
+                                <option value="normal">✓ Normal</option>
+                                <option value="low">↓ Low</option>
+                                <option value="high">↑ High</option>
+                                <option value="critical">⚠ Critical</option>
+                              </select>
+                            ) : ot.result_flag ? (
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${FLAG_STYLES[ot.result_flag] ?? ""}`}>
+                                {ot.result_flag === "normal" ? "✓" : ot.result_flag === "low" ? "↓" : ot.result_flag === "high" ? "↑" : "⚠"}{" "}
+                                {ot.result_flag.charAt(0).toUpperCase() + ot.result_flag.slice(1)}
+                              </span>
+                            ) : <span className="text-gray-300 text-xs">—</span>}
+                          </td>
+
+                          {/* Notes */}
+                          <td className="px-3 py-2.5">
+                            {editable ? (
+                              <input
+                                type="text"
+                                value={d.result_notes}
+                                onChange={e => setField(ot.id, "result_notes", e.target.value)}
+                                placeholder="optional notes"
+                                className="w-full px-2 py-1.5 text-sm rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              />
+                            ) : (
+                              <span className="text-xs text-gray-500 truncate max-w-[140px] block">{ot.result_notes || "—"}</span>
+                            )}
+                          </td>
+
+                          {/* Action */}
+                          <td className="px-3 py-2.5 text-right">
+                            {isEditing ? (
+                              <div className="flex items-center gap-1 justify-end">
+                                <button
+                                  onClick={() => saveRow(ot)}
+                                  disabled={d.saving || !d.result_value?.trim()}
+                                  className="px-2.5 py-1 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                >
+                                  {d.saving ? "…" : "Save"}
+                                </button>
+                                <button
+                                  onClick={() => cancelEdit(ot.id, ot)}
+                                  className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700 rounded-lg hover:bg-gray-100"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : isDone ? (
+                              <button
+                                onClick={() => startEdit(ot.id)}
+                                className="flex items-center gap-1 px-2.5 py-1 text-xs text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                              >
+                                <Pencil className="h-3 w-3" />Edit
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => saveRow(ot)}
+                                disabled={d.saving || !d.result_value?.trim()}
+                                className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                              >
+                                {d.saving ? (
+                                  <div className="h-3 w-3 rounded-full border border-white border-t-transparent animate-spin" />
+                                ) : (
+                                  <Save className="h-3 w-3" />
+                                )}
+                                Save
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           );
         })}
       </div>
 
-      {completedCount === orderTests.length && orderTests.length > 0 && (
-        <div className="mt-4 p-4 rounded-xl bg-green-50 border border-green-200 text-center">
-          <p className="text-sm font-medium text-green-800">All results entered</p>
-          <p className="text-xs text-green-600 mt-1">You can now generate the report</p>
+      {/* Editing correction notice */}
+      {editingIds.size > 0 && (
+        <div className="mt-4 flex items-center gap-2 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-800">
+          <History className="h-4 w-4 shrink-0" />
+          Corrections will be saved in the audit log with the previous values.
+        </div>
+      )}
+
+      {/* All done */}
+      {completedCount === total && total > 0 && (
+        <div className="mt-4 p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-center">
+          <CheckCircle className="h-5 w-5 text-emerald-600 mx-auto mb-1" />
+          <p className="text-sm font-medium text-emerald-800">All {total} results entered</p>
+          <p className="text-xs text-emerald-600 mt-0.5">You can now generate the report</p>
         </div>
       )}
 
       <div className="mt-6">
         <Link href={`/orders/${orderId}/report`}>
-          <Button className="w-full" variant={completedCount === orderTests.length ? "default" : "outline"}>
-            {completedCount === orderTests.length ? "Generate Report →" : "Go to Report Page"}
+          <Button className="w-full" variant={completedCount === total ? "default" : "outline"}>
+            {completedCount === total ? "Generate Report" : "Go to Report Page"}
+            <ChevronRight className="h-4 w-4 ml-1" />
           </Button>
         </Link>
       </div>
