@@ -4,7 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   LayoutDashboard, Users, FlaskConical, FileText, Receipt,
-  Stethoscope, Settings, LogOut, ChevronRight, Beaker, Zap, Shield,
+  Stethoscope, Settings, LogOut, ChevronRight, Beaker, Zap, Shield, CreditCard,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { UserRole } from "@/types";
@@ -27,6 +27,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Billing", href: "/billing", icon: Receipt, roles: ["admin", "staff"] },
   { label: "Doctors", href: "/doctors", icon: Stethoscope, roles: ["admin", "staff"] },
   { label: "Audit Log", href: "/audit", icon: Shield, roles: ["admin"] },
+  { label: "Subscription", href: "/subscription", icon: CreditCard, roles: ["admin"] },
   {
     label: "Settings", href: "/settings/lab", icon: Settings, roles: ["admin"],
     children: [

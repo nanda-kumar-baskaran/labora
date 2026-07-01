@@ -2,6 +2,7 @@ import { getRepository } from "@/lib/db";
 import { getStorage } from "@/lib/storage";
 import { requireSession } from "@/lib/session";
 import { can } from "@/lib/permissions";
+import { requireWriteAccess } from "@/lib/subscription";
 import { NextRequest, NextResponse } from "next/server";
 import { generateReportPDF } from "@/lib/pdf/report-template";
 import type { ReportData } from "@/lib/pdf/report-template";
@@ -18,6 +19,8 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const session = await requireSession();
+  const denied = await requireWriteAccess(session);
+  if (denied) return denied;
   if (!can(session, "report:generate")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const { order_id } = await req.json();
   if (!order_id) return NextResponse.json({ error: "order_id required" }, { status: 400 });

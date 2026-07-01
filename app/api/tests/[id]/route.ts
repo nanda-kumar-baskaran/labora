@@ -1,5 +1,6 @@
 import { getRepository } from "@/lib/db";
 import { requireSession } from "@/lib/session";
+import { requireWriteAccess } from "@/lib/subscription";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { logAudit } from "@/lib/audit";
@@ -20,6 +21,8 @@ const updateSchema = z.object({
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await requireSession();
+  const denied = await requireWriteAccess(session);
+  if (denied) return denied;
   if (session.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const { id } = await params;
   const body = await req.json();

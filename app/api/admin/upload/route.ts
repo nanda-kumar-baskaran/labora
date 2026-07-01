@@ -5,6 +5,7 @@
  */
 import { requireSession } from "@/lib/session";
 import { getStorage } from "@/lib/storage";
+import { requireWriteAccess } from "@/lib/subscription";
 import { NextRequest, NextResponse } from "next/server";
 
 const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/jpg", "image/webp", "image/svg+xml"];
@@ -12,6 +13,8 @@ const MAX_SIZE = 2 * 1024 * 1024; // 2MB
 
 export async function POST(req: NextRequest) {
   const session = await requireSession();
+  const denied = await requireWriteAccess(session);
+  if (denied) return denied;
   if (session.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const formData = await req.formData();

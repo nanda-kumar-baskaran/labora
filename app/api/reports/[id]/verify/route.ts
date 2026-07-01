@@ -1,10 +1,13 @@
 import { getRepository } from "@/lib/db";
 import { requireSession } from "@/lib/session";
+import { requireWriteAccess } from "@/lib/subscription";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const session = await requireSession();
+  const denied = await requireWriteAccess(session);
+  if (denied) return denied;
   if (!["admin", "pathologist"].includes(session.role)) {
     return NextResponse.json({ error: "Only pathologists can verify reports" }, { status: 403 });
   }
@@ -21,6 +24,8 @@ export async function POST(_: NextRequest, { params }: { params: Promise<{ id: s
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const session = await requireSession();
+  const denied2 = await requireWriteAccess(session);
+  if (denied2) return denied2;
   if (!["admin", "pathologist"].includes(session.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

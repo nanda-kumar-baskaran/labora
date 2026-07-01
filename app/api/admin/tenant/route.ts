@@ -1,5 +1,6 @@
 import { getRepository } from "@/lib/db";
 import { requireSession } from "@/lib/session";
+import { requireWriteAccess } from "@/lib/subscription";
 import { NextRequest, NextResponse } from "next/server";
 import { logAudit } from "@/lib/audit";
 
@@ -12,6 +13,8 @@ export async function GET() {
 
 export async function PUT(req: NextRequest) {
   const session = await requireSession();
+  const denied = await requireWriteAccess(session);
+  if (denied) return denied;
   if (session.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const body = await req.json();
   const repo = await getRepository();

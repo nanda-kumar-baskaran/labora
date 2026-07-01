@@ -21,10 +21,14 @@ CREATE TABLE IF NOT EXISTS tenants (
   logo_url        TEXT,
   report_header   TEXT,
   report_footer   TEXT,
-  is_active       BOOLEAN NOT NULL DEFAULT TRUE,
-  plan            TEXT NOT NULL DEFAULT 'starter',
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  is_active              BOOLEAN NOT NULL DEFAULT TRUE,
+  plan                   TEXT NOT NULL DEFAULT 'starter',
+  -- Subscription management
+  subscription_status    TEXT NOT NULL DEFAULT 'trial'
+                           CHECK (subscription_status IN ('trial','active','expired','cancelled')),
+  subscription_end_date  TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '30 days'),
+  created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- ── USERS ──────────────────────────────────────────────────────────

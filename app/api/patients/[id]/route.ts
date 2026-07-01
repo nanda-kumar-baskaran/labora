@@ -1,6 +1,7 @@
 import { getRepository } from "@/lib/db";
 import { requireSession } from "@/lib/session";
 import { can } from "@/lib/permissions";
+import { requireWriteAccess } from "@/lib/subscription";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { logAudit } from "@/lib/audit";
@@ -29,6 +30,8 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const session = await requireSession();
+  const denied = await requireWriteAccess(session);
+  if (denied) return denied;
   if (!can(session, "patient:edit")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const body = await req.json();
   const parsed = updateSchema.safeParse(body);

@@ -1,6 +1,7 @@
 import { getRepository } from "@/lib/db";
 import { requireSession } from "@/lib/session";
 import { can } from "@/lib/permissions";
+import { requireWriteAccess } from "@/lib/subscription";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -28,6 +29,8 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const session = await requireSession();
+  const denied = await requireWriteAccess(session);
+  if (denied) return denied;
   if (!can(session, "patient:create")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const body = await req.json();
   const parsed = patientSchema.safeParse(body);

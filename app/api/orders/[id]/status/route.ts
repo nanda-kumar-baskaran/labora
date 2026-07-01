@@ -1,6 +1,7 @@
 import { getRepository } from "@/lib/db";
 import { requireSession } from "@/lib/session";
 import { can } from "@/lib/permissions";
+import { requireWriteAccess } from "@/lib/subscription";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -12,6 +13,8 @@ const schema = z.object({
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const session = await requireSession();
+  const denied = await requireWriteAccess(session);
+  if (denied) return denied;
   if (!can(session, "order:status")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const body = await req.json();
   const parsed = schema.safeParse(body);

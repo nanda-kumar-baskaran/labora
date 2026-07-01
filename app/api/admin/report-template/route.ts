@@ -13,6 +13,7 @@
  *   - We extract the header text → save as report_header
  */
 import { requireSession } from "@/lib/session";
+import { requireWriteAccess } from "@/lib/subscription";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET() {
@@ -200,6 +201,8 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const session = await requireSession();
+  const denied = await requireWriteAccess(session);
+  if (denied) return denied;
   if (session.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   try {
