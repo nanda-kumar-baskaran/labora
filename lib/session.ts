@@ -48,8 +48,11 @@ export async function getSession(): Promise<SessionUser | null> {
   }
 
   // Fallback to DB lookup if JWT claims not yet populated
+  // Use admin client to bypass RLS (needed on first login before hook injects tenant_id)
   if (!tenant_id) {
-    const { data: profile } = await supabase
+    const { createAdminClient } = await import("@/lib/supabase/server");
+    const admin = await createAdminClient();
+    const { data: profile } = await admin
       .from("users")
       .select("tenant_id, role, full_name")
       .eq("id", user.id)
@@ -63,7 +66,9 @@ export async function getSession(): Promise<SessionUser | null> {
     };
   }
 
-  const { data: profile } = await supabase.from("users").select("full_name").eq("id", user.id).single();
+  const { createAdminClient } = await import("@/lib/supabase/server");
+  const admin = await createAdminClient();
+  const { data: profile } = await admin.from("users").select("full_name").eq("id", user.id).single();
   return {
     id: user.id,
     email: user.email ?? "",
