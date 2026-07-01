@@ -42,7 +42,8 @@ export async function getSession(): Promise<SessionUser | null> {
           Buffer.from(parts[1], "base64url").toString()
         );
         tenant_id = jwtPayload?.tenant_id ?? null;
-        role = (jwtPayload?.role as UserRole) ?? "staff";
+        // app_role is our custom claim (avoids conflict with Postgres role system)
+        role = (jwtPayload?.app_role as UserRole) ?? (jwtPayload?.role as UserRole) ?? "staff";
       }
     } catch { /* ignore parse error — fallback to DB lookup below */ }
   }
